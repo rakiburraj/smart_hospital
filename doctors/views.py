@@ -496,7 +496,8 @@ def edit_doctor_profile(request):
         form = DoctorProfileForm(request.POST, request.FILES, instance=doc)
         if form.is_valid():
             form.save()
-            return redirect('doctor_dashboard')  
-        form = DoctorProfileForm(instance=doc)
+            return redirect('doctor_dashboard')
+    else:
+        form = DoctorProfileForm(instance=doc)  
 
     return render(request, 'edit_doctor_profile.html', {'form': form})
