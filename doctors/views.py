@@ -354,3 +354,149 @@ def edit_patient_profile(request):
         form = PatientProfileForm(instance=profile)
 
     return render(request, 'edit_patient_profile.html', {'form': form})
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from datetime import datetime, timedelta, time
+from .models import doctor, DoctorAvailability, Appointment, Prescription
+from .forms import DoctorAvailabilityForm, PrescriptionForm
+
+from datetime import datetime
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from .models import DoctorAvailability, Appointment
+
+DAYS_OF_WEEK = [
+    ('mon', 'Monday'),
+    ('tue', 'Tuesday'),
+    ('wed', 'Wednesday'),
+    ('thu', 'Thursday'),
+    ('fri', 'Friday'),
+    ('sat', 'Saturday'),
+    ('sun', 'Sunday'),
+]
+
+@login_required
+def doctor_dashboard(request):
+    doc = request.user.doctor
+    today = datetime.today().date()
+
+   
+    appointments = Appointment.objects.filter(
+        doctor=doc,
+        date__gte=today
+    ).order_by('date', 'time')
+
+    
+    doctor_availability = DoctorAvailability.objects.filter(doctor=doc).order_by('day')
+
+    
+    selected_days = [avail.day for avail in doctor_availability]
+
+    if request.method == 'POST':
+        
+        days = request.POST.getlist('days')  
+        patient_limit = int(request.POST.get('patient_limit', 10))
+        fee = float(request.POST.get('fee', 500))
+        start_time = request.POST.get('start_time', '09:00')
+        end_time = request.POST.get('end_time', '17:00')
+
+        start_time_obj = datetime.strptime(start_time, '%H:%M').time()
+        end_time_obj = datetime.strptime(end_time, '%H:%M').time()
+
+        
+        DoctorAvailability.objects.filter(doctor=doc).exclude(day__in=days).delete()
+
+        
+        for day in days:
+            DoctorAvailability.objects.update_or_create(
+                doctor=doc,
+                day=day,
+                defaults={
+                    'patient_limit': patient_limit,
+                    'fee': fee,
+                    'start_time': start_time_obj,
+                    'end_time': end_time_obj
+                }
+            )
+
+        return redirect('doctor_dashboard')
+
+    context = {
+        'doc': doc,
+        'appointments': appointments,
+        'doctor_availability': DoctorAvailability.objects.filter(doctor=doc).order_by('day'),  
+        'selected_days': [avail.day for avail in DoctorAvailability.objects.filter(doctor=doc)],  
+        'default_fee': 500,
+        'default_start_time': '09:00',
+        'default_end_time': '17:00',
+    }
+    return render(request, 'doctor_dashboard.html', context)
+
+
+
+@login_required
+def add_prescription(request, appointment_id):
+    appointment = Appointment.objects.get(id=appointment_id)
+    if request.method == 'POST':
+        form = PrescriptionForm(request.POST, request.FILES)
+        if form.is_valid():
+            presc = form.save(commit=False)
+            presc.appointment = appointment
+            presc.save()
+            return redirect('doctor_dashboard')
+    else:
+        form = PrescriptionForm()
+    return render(request, 'add_prescription.html', {'form': form, 'appointment': appointment})
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def mark_seen(request, appointment_id):
+    appointment = get_object_or_404(Appointment, id=appointment_id, doctor=request.user.doctor)
+    appointment.seen = True
+    appointment.save()
+    return redirect('doctor_dashboard')
+
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+from doctors.models import Appointment
+from feedback.models import Feedback
+from .models import PatientProfile
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def submit_feedback(request, appointment_id):
+    patient_profile = get_object_or_404(PatientProfile, user=request.user)
+    appointment = get_object_or_404(Appointment, id=appointment_id, patient=patient_profile)
+    
+    if request.method == 'POST':
+        rating = int(request.POST.get('rating'))
+        comment = request.POST.get('comment', '')
+        
+        feedback, created = Feedback.objects.update_or_create(
+            appointment=appointment,
+            defaults={
+                'rating': rating,
+                'comment': comment,
+                'doctor': appointment.doctor,
+                'patient': request.user  
+            }
+        )
+        
+        messages.success(request, "Your feedback has been submitted successfully!")
+    else:
+        messages.error(request, "Invalid request.")
+    
+    return redirect('patient_dashboard')
+@login_required
+def edit_doctor_profile(request):
+    doc = request.user.doctor
+
+    if request.method == 'POST':
+        form = DoctorProfileForm(request.POST, request.FILES, instance=doc)
+        if form.is_valid():
+            form.save()
+            return redirect('doctor_dashboard')  
+        form = DoctorProfileForm(instance=doc)
+
+    return render(request, 'edit_doctor_profile.html', {'form': form})
