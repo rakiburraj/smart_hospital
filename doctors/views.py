@@ -182,3 +182,175 @@ def book_appointment(request, doctor_id=None):
         'available_dates_times': available_dates_times,
         'selected_doctor_id': doctor_id
     })
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth import authenticate, login
+from django.contrib.auth.decorators import login_required
+from django.utils import timezone
+from django.contrib.auth.models import User
+from .models import doctor, Appointment, DoctorAvailability
+
+
+def doctor_login(request):
+    if request.method == 'POST':
+        username = request.POST['username']
+        password = request.POST['password']
+
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+           
+            if hasattr(user, 'doctor'):
+                login(request, user)
+                return redirect('doctor_dashboard')
+            else:
+                return render(request, 'doctor_login.html', {'error': 'This user is not a doctor.'})
+        else:
+            return render(request, 'doctor_login.html', {'error': 'Invalid username or password.'})
+    return render(request, 'doctor_login.html')
+
+
+
+@login_required
+def doctor_availability(request):
+    doctor = request.user.doctor  
+    if request.method == 'POST':
+        form = DoctorAvailabilityForm(request.POST)
+        if form.is_valid():
+            availability = form.save(commit=False)
+            availability.doctor = doctor
+            availability.save()
+            return redirect('doctor_dashboard')
+    else:
+        form = DoctorAvailabilityForm()
+    return render(request, 'doctor_availability.html', {'form': form})
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from .models import doctor, DoctorAvailability
+
+@login_required
+def set_availability(request):
+    doc_instance = request.user.doctor
+
+    if request.method == 'POST':
+        days = request.POST.getlist('days')  
+        max_patients = int(request.POST.get('max_patients', 10))
+        fee = int(request.POST.get('fee', 500))  
+
+       
+        DoctorAvailability.objects.filter(doctor=doc_instance).delete()
+
+        for day in days:
+            DoctorAvailability.objects.create(
+                doctor=doc_instance,
+                day_of_week=int(day),
+                max_patients=max_patients,
+                fee=fee
+            )
+
+        return redirect('doctor_dashboard')
+
+    return render(request, 'set_availability.html', {
+        'days_of_week': DoctorAvailability.DAYS_OF_WEEK
+    })
+
+
+@login_required
+def upload_prescription(request, appointment_id):
+    doctor_obj = get_object_or_404(doctor, user=request.user)
+    appointment = get_object_or_404(Appointment, id=appointment_id, doctor=doctor_obj)
+    if request.method == 'POST' and 'prescription' in request.FILES:
+        appointment.prescription = request.FILES['prescription']
+        appointment.save()
+    return redirect('doctor_dashboard')
+
+
+from django.shortcuts import get_object_or_404
+
+def view_patient(request, patient_id):
+    
+    patient = get_object_or_404(PatientProfile, id=patient_id)
+
+    
+    appointments = Appointment.objects.filter(patient=patient)
+
+    return render(request, 'view_patient.html', {
+        'patient': patient,
+        'appointments': appointments,
+    })
+import datetime
+
+def is_doctor_available(doctor_obj, date):
+    weekday = date.weekday()  
+    availability = DoctorAvailability.objects.filter(doctor=doctor_obj, day_of_week=weekday).first()
+    if availability:
+        booked_count = Appointment.objects.filter(doctor=doctor_obj, date=date).count()
+        return booked_count < availability.max_patients
+    return False
+@login_required
+def pay_appointment(request, appointment_id):
+    appointment = Appointment.objects.get(id=appointment_id)
+    if request.method == 'POST':
+        appointment.is_paid = True
+        appointment.save()
+        return redirect('patient_dashboard')
+    return render(request, 'pay_appointment.html', {'appointment': appointment})
+
+
+
+from django.shortcuts import render, redirect
+from django.contrib.auth.decorators import login_required
+from .models import PatientProfile
+from .forms import PatientProfileForm
+from django.contrib import messages
+
+@login_required
+def create_patient_profile(request):
+    
+    if PatientProfile.objects.filter(user=request.user).exists():
+        messages.info(request, "You already have a profile.")
+        return redirect('profile_detail')  
+
+    if request.method == 'POST':
+        form = PatientProfileForm(request.POST, request.FILES)
+        if form.is_valid():
+            profile = form.save(commit=False)
+            profile.user = request.user
+            profile.save()
+            messages.success(request, "Profile created successfully!")
+            return redirect('profile_detail')
+    else:
+        form = PatientProfileForm()
+
+    return render(request, 'create_patient_profile.html', {'form': form})
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required
+from .models import PatientProfile 
+
+@login_required
+def profile_detail(request):
+   
+    try:
+        profile = PatientProfile.objects.get(user=request.user)
+    except PatientProfile.DoesNotExist:
+        profile = None
+
+    return render(request, 'profile_detail.html', {'profile': profile})
+from django.shortcuts import render, redirect, get_object_or_404
+from django.contrib.auth.decorators import login_required
+from .models import PatientProfile
+from .forms import PatientProfileForm
+from django.contrib import messages
+
+@login_required
+def edit_patient_profile(request):
+    profile = get_object_or_404(PatientProfile, user=request.user)
+
+    if request.method == 'POST':
+        form = PatientProfileForm(request.POST, request.FILES, instance=profile)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Profile updated successfully!")
+            return redirect('profile_detail')
+    else:
+        form = PatientProfileForm(instance=profile)
+
+    return render(request, 'edit_patient_profile.html', {'form': form})
