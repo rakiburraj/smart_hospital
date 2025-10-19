@@ -380,7 +380,7 @@ def doctor_dashboard(request):
     doc = request.user.doctor
     today = datetime.today().date()
 
-   
+    
     appointments = Appointment.objects.filter(
         doctor=doc,
         date__gte=today
@@ -389,11 +389,11 @@ def doctor_dashboard(request):
     
     doctor_availability = DoctorAvailability.objects.filter(doctor=doc).order_by('day')
 
-    
+   
     selected_days = [avail.day for avail in doctor_availability]
 
     if request.method == 'POST':
-        
+       
         days = request.POST.getlist('days')  
         patient_limit = int(request.POST.get('patient_limit', 10))
         fee = float(request.POST.get('fee', 500))
@@ -403,10 +403,10 @@ def doctor_dashboard(request):
         start_time_obj = datetime.strptime(start_time, '%H:%M').time()
         end_time_obj = datetime.strptime(end_time, '%H:%M').time()
 
-        
+       
         DoctorAvailability.objects.filter(doctor=doc).exclude(day__in=days).delete()
 
-        
+       
         for day in days:
             DoctorAvailability.objects.update_or_create(
                 doctor=doc,
@@ -425,7 +425,9 @@ def doctor_dashboard(request):
         'doc': doc,
         'appointments': appointments,
         'doctor_availability': DoctorAvailability.objects.filter(doctor=doc).order_by('day'),  
+        'days_of_week': DAYS_OF_WEEK,
         'selected_days': [avail.day for avail in DoctorAvailability.objects.filter(doctor=doc)],  
+        'default_patient_limit': 10,
         'default_fee': 500,
         'default_start_time': '09:00',
         'default_end_time': '17:00',
